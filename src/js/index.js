@@ -1,478 +1,569 @@
-// Music by The War On Drugs - Thinking Of A Place
+const MAX_SELECTABLE_STARS = 100
+const ANALYSER_MAX_DECIBELS = -3
+const ANALYSER_MIN_DECIBELS = -100
 
-var camera, scene, renderer, spotLight, controls;
+const AUDIO_STREAM_URI = '/assets/audio/TheWarOnDrugs.m4a'
 
-var loader = new THREE.JSONLoader();
-var landscape, planetBig, planetMedium, planetSmall;
+const CAMERA_FOV = 55
+const CAMERA_FRUSTUM_PLANE_NEAR = 0.01
+const CAMERA_FRUSTUM_PLANE_FAR = 1000
+const CAMERA_INITIAL_POSITION = new THREE.Vector3(0.1, -0.14, 0.8)
 
-var analyser, dataArray;
-var audioData = [];
-// var stream = "https://cdn.rawgit.com/ellenprobst/web-audio-api-with-Threejs/57582104/lib/TheWarOnDrugs.m4a";
-var stream = "https://archive.org/download/BeethovenPianoSonataNo.14moonlightrubinstein/04Beethoven_PianoSonata14InCSharpMinorOp.27_2_moonlight_-1.AdagioSostenuto.mp3";
+const HEMISPHERE_LIGHT_INITIAL_POSITION = new THREE.Vector3(0, 10, 0)
+const DIRECTIONAL_LIGHT_INITIAL_POSITION = new THREE.Vector3(5, 8.22, -3.68)
 
-var particles = [];
-var raycaster = new THREE.Raycaster();
-var mouse = new THREE.Vector2();
-var intersected;
-var selectableStars = [];
-var currentIndex = 0;
-var newIndex;
+const PLANET_BIG_POSITION = new THREE.Vector3(-150, 40, -180)
+const PLANET_MEDIUM_POSITION = new THREE.Vector3(40, 30, -100)
+const PLANET_SMALL_POSITION = new THREE.Vector3(20, 70, -160)
 
-var colors = [
-    ["#e9ff00", "#1a1600"],
-    ["#c32c40", "#16001a"],
-    ["#06FFC4", "#001a19"],
-    ["#F69C3F", "#01131E"],
-    ["#FFFFFF", "#080808"]
-];
+const COLORS = [
+  ['#e9ff00', '#1a1600'],
+  ['#c32c40', '#16001a'],
+  ['#06FFC4', '#001a19'],
+  ['#F69C3F', '#01131E'],
+  ['#FFFFFF', '#080808']
+]
 
 // init
-function init() {
-    // scene
-    scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x01131e, 0.025);
+function init (window) {
+  const loader = new THREE.JSONLoader()
 
-    // camera
-    camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.01, 1000);
-    camera.position.set(0.1, -0.14, 0.8);
+  const members = {
+    window,
+    raycaster:       new THREE.Raycaster(),
+    mouse:           new THREE.Vector2(),
+    scene:           initScene(),// scene
+    camera:          initCamera(window),// camera
+    renderer:        initRenderer(window),// renderer
+    audio:           initAudio(),// AUDIO
+    selectableStars: [],
+    intersected:     null,
+    landscape:       null,
+  }
 
-    // renderer
-    renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.renderReverseSided = false;
-    renderer.setClearColor("#01131E");
-    console.log('document.body',document.body)
-    document.body.appendChild(renderer.domElement);
+  //load external geometry
+  loader.load(
+    '/assets/landscape.json',
+    geometry=>members.landscape=createLandscape(members.scene, geometry)
+  )
 
-    //load external geometry
-    loader.load(
-        "https://raw.githubusercontent.com/ellenprobst/web-audio-api-with-Threejs/master/lib/landscape.json",
-        createLandscape
-    );
+  // controls
+  members.controls = initControls(members.camera)
 
-    // controls
-    controls = new THREE.OrbitControls(camera);
-    var verticalAngle = controls.getPolarAngle();
-    var horizontalAngle = controls.getAzimuthalAngle();
+  // LIGHTS
+  members.lights = initLights(members.scene)
 
-    controls.minPolarAngle = verticalAngle - 0.2;
-    controls.maxPolarAngle = verticalAngle + 0.2;
-    controls.minAzimuthAngle = horizontalAngle - 0.5;
-    controls.maxAzimuthAngle = horizontalAngle + 0.5;
+  // PLANETS
+  members.planets = initPlanets(members.scene)
 
-    // LIGHTS
-    // add pointlight
-    var pointLight = getPointLight(0.66);
-    scene.add(pointLight);
-    spotLight = getSpotLight(2.66);
-    scene.add(spotLight);
+  // PARTICLES
+  members.particles = createParticles(members.scene, 50)
 
-    // add hemisphere light
-    var hemiLight = new THREE.HemisphereLight("#00C2FF", "#FF9500", 0.4);
-    hemiLight.position.set(0, 10, 0);
-    scene.add(hemiLight);
+  // EVENTS
+  initEventListeners(members)
 
-    // add directional light
-    var dirLight = new THREE.DirectionalLight("#FF5B2C", 1);
-    dirLight.position.set(5, 8.22, -3.68);
-    scene.add(dirLight);
+  return members
+}
 
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 2048;
-    dirLight.shadow.mapSize.height = 2048;
-    dirLight.shadow.camera.near = 0.5;
-    dirLight.shadow.camera.far = 500;
-    dirLight.shadow.camera.left = -10;
-    dirLight.shadow.camera.right = 10;
+function initCamera (window) {
+  const aspectRatio = window.innerWidth / window.innerHeight
+  const camera = new THREE.PerspectiveCamera(CAMERA_FOV, aspectRatio, CAMERA_FRUSTUM_PLANE_NEAR, CAMERA_FRUSTUM_PLANE_FAR)
+  camera.position.set(CAMERA_INITIAL_POSITION.x, CAMERA_INITIAL_POSITION.y, CAMERA_INITIAL_POSITION.z)
 
-    // PLANETS
-    // add big planet
-    planetBig = createPlanet(25);
+  return camera
+}
 
-    planetBig.position.z = -180;
-    planetBig.position.x = -150;
-    planetBig.position.y = 40;
+function initScene () {
+  const scene = new THREE.Scene()
+  scene.fog = new THREE.FogExp2(0x01131e, 0.025)
 
-    planetBig.rotateAt = 0.2;
-    planetBig.scale.set(1.5, 1.5, 1.5);
+  return scene
+}
 
-    planetBig.rotation.z = Math.PI / 2;
-    planetBig.rotation.y = 0.3;
-    planetBig.rotation.x = 1.5;
+function initLights (scene) {
+  const lights = {}
 
-    scene.add(planetBig);
+  // add pointlight
+  lights.point = getPointLight(0.66)
+  scene.add(lights.point)
 
-    // add ellipses
-    var ellipses = createEllipses(30);
-    planetBig.add(ellipses);
+  // add spotlight
+  lights.spot = getSpotLight(2.66)
+  scene.add(lights.spot)
 
-    // add medium planet
-    planetMedium = createPlanet();
+  // add hemisphere light
+  lights.hemi = new THREE.HemisphereLight('#00C2FF', '#FF9500', 0.4)
+  lights.hemi.position.set(HEMISPHERE_LIGHT_INITIAL_POSITION.x, HEMISPHERE_LIGHT_INITIAL_POSITION.y, HEMISPHERE_LIGHT_INITIAL_POSITION.z)
+  scene.add(lights.hemi)
 
-    planetMedium.position.z = -100;
-    planetMedium.position.x = 40;
-    planetMedium.position.y = 30;
+  // add directional light
+  lights.dir = new THREE.DirectionalLight('#FF5B2C', 1)
+  lights.dir.position.set(DIRECTIONAL_LIGHT_INITIAL_POSITION.x, DIRECTIONAL_LIGHT_INITIAL_POSITION.y, DIRECTIONAL_LIGHT_INITIAL_POSITION.z)
+  scene.add(lights.dir)
 
-    planetMedium.scale.set(5.5, 5.5, 5.5);
+  lights.dir.castShadow = true
+  lights.dir.shadow.mapSize.width = 2048
+  lights.dir.shadow.mapSize.height = 2048
+  lights.dir.shadow.camera.near = 0.5
+  lights.dir.shadow.camera.far = 500
+  lights.dir.shadow.camera.left = -10
+  lights.dir.shadow.camera.right = 10
 
-    scene.add(planetMedium);
+  return lights
+}
 
-    // add small planet
-    planetSmall = createPlanet();
+function initControls (camera) {
+  const controls = new THREE.OrbitControls(camera)
+  const verticalAngle = controls.getPolarAngle()
+  const horizontalAngle = controls.getAzimuthalAngle()
 
-    planetSmall.position.z = -160;
-    planetSmall.position.x = 20;
-    planetSmall.position.y = 70;
+  controls.minPolarAngle = verticalAngle - 0.2
+  controls.maxPolarAngle = verticalAngle + 0.2
+  controls.minAzimuthAngle = horizontalAngle - 0.5
+  controls.maxAzimuthAngle = horizontalAngle + 0.5
 
-    planetSmall.scale.set(5, 5, 5);
+  return controls
+}
 
-    scene.add(planetSmall);
+function initRenderer (window) {
+  const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+  renderer.setSize(window.innerWidth, window.innerHeight)
+  renderer.shadowMap.enabled = true
+  renderer.setClearColor('#01131E')
+  window.document.body.appendChild(renderer.domElement)
 
-    // PARTICLES
-    createParticles(50);
+  return renderer
+}
 
-    // AUDIO
-    var fftSize = 2048;
-    var audioLoader = new THREE.AudioLoader();
-    var listener = new THREE.AudioListener();
-    var audio = new THREE.Audio(listener);
-    window.globalAudio = audio;
-    audio.crossOrigin = "anonymous";
-    audioLoader.load(stream, function(buffer) {
-        audio.setBuffer(buffer);
-        audio.setLoop(true);
-        audio.play();
-    });
+function initPlanets (scene) {
+  const planets = {}
 
-    analyser = new THREE.AudioAnalyser(audio, fftSize);
+  // add big planet
+  planets.big = initBigPlanet(scene)
 
-    analyser.analyser.maxDecibels = -3;
-    analyser.analyser.minDecibels = -100;
-    dataArray = analyser.data;
-    getAudioData(dataArray);
+  // add medium planet
+  planets.medium = initMediumPlanet(scene)
 
-    // EVENTS
-    window.addEventListener("keydown", onKeyDown, false);
-    window.addEventListener("resize", onWindowResize, false);
-    window.addEventListener("mousemove", onMouseMove, false);
-    window.addEventListener("mousedown", onMouseDown, false);
+  // add small planet
+  planets.small = initSmallPlanet(scene)
 
+  return planets
+}
+
+function initBigPlanet (scene) {
+  const planetBig = createPlanet(25)
+
+  planetBig.position.z = PLANET_BIG_POSITION.z
+  planetBig.position.x = PLANET_BIG_POSITION.x
+  planetBig.position.y = PLANET_BIG_POSITION.y
+
+  planetBig.rotateAt = 0.2
+  planetBig.scale.set(1.5, 1.5, 1.5)
+
+  planetBig.rotation.z = Math.PI / 2
+  planetBig.rotation.y = 0.3
+  planetBig.rotation.x = 1.5
+
+  scene.add(planetBig)
+
+  // add ellipses
+  const ellipses = createEllipses(30)
+  planetBig.add(ellipses)
+
+  return planetBig
+}
+
+function initMediumPlanet (scene) {
+  const planetMedium = createPlanet()
+
+  planetMedium.position.z = PLANET_MEDIUM_POSITION.z
+  planetMedium.position.x = PLANET_MEDIUM_POSITION.x
+  planetMedium.position.y = PLANET_MEDIUM_POSITION.y
+
+  planetMedium.scale.set(5.5, 5.5, 5.5)
+
+  scene.add(planetMedium)
+
+  return planetMedium
+}
+
+function initSmallPlanet (scene) {
+  const planetSmall = createPlanet()
+
+  planetSmall.position.z = PLANET_SMALL_POSITION.z
+  planetSmall.position.x = PLANET_SMALL_POSITION.x
+  planetSmall.position.y = PLANET_SMALL_POSITION.y
+
+  planetSmall.scale.set(5, 5, 5)
+
+  scene.add(planetSmall)
+
+  return planetSmall
+}
+
+function initAudio () {
+  const refs = {data: []}
+
+  const fftSize = 2048
+  const audioLoader = new THREE.AudioLoader()
+  const listener = new THREE.AudioListener()
+  const audio = new THREE.Audio(listener)
+  window.globalAudio = audio
+  audio.crossOrigin = 'anonymous'
+  audioLoader.load(AUDIO_STREAM_URI, function(buffer) {
+    audio.setBuffer(buffer)
+    audio.setLoop(true)
+    audio.play()
+  })
+
+  refs.analyser = new THREE.AudioAnalyser(audio, fftSize)
+
+  refs.analyser.analyser.maxDecibels = ANALYSER_MAX_DECIBELS
+  refs.analyser.analyser.minDecibels = ANALYSER_MIN_DECIBELS
+
+  getAudioData(refs)
+
+  return refs
+}
+
+function initEventListeners (members) {
+  const {window, camera, renderer, lights} = members
+
+  window.addEventListener('keydown', onKeyDown(renderer, lights.spot), false)
+  window.addEventListener('resize', onWindowResize(window, camera, renderer), false)
+  window.addEventListener('mousemove', onMouseMove(members), false)
+  window.addEventListener('mousedown', onMouseDown(members), false)
 }
 
 // create pointlight
-function getPointLight(intensity) {
-    var light = new THREE.PointLight("#06FFC4", intensity);
-    light.position.x = -33;
-    light.position.y = 22;
-    light.position.z = -40;
+function getPointLight (intensity) {
+  const light = new THREE.PointLight('#06FFC4', intensity)
+  light.position.x = -33
+  light.position.y = 22
+  light.position.z = -40
 
-    return light;
+  return light
 }
 
 // create spotlight
-function getSpotLight(intensity) {
-    var light = new THREE.SpotLight("#F69C3F", intensity);
-    light.position.x = 104;
-    light.position.y = 50;
-    light.position.z = -500;
+function getSpotLight (intensity) {
+  const light = new THREE.SpotLight('#F69C3F', intensity)
+  light.position.x = 104
+  light.position.y = 50
+  light.position.z = -500
 
-    return light;
+  return light
 }
 
 // create landscape
-function createLandscape(geometry) {
-    geometry.computeVertexNormals();
-    material = new THREE.MeshPhongMaterial({
-        color: "#383948",
-        emissive: "#0D0D0D",
-        specular: "#21141C",
-        shininess: 6.84,
-        side: THREE.DoubleSide,
-        wireframe: false
-    });
+function createLandscape (scene, geometry) {
+  geometry.computeVertexNormals()
+  const material = new THREE.MeshPhongMaterial({
+    color:      '#383948',
+    emissive:   '#0D0D0D',
+    specular:   '#21141C',
+    shininess:  6.84,
+    side:       THREE.DoubleSide,
+    shadowSide: THREE.FrontSide,
+    wireframe:  false,
+  })
 
-    landscape = new THREE.Mesh(geometry, material);
+  const landscape = new THREE.Mesh(geometry, material)
 
-    landscape.position.y = -0.5;
-    landscape.position.z = -4.79;
+  landscape.position.y = -0.5
+  landscape.position.z = -4.79
 
-    landscape.castShadow = true;
-    landscape.receiveShadow = true;
+  landscape.castShadow = true
+  landscape.receiveShadow = true
 
-    scene.add(landscape);
+  scene.add(landscape)
+
+  return landscape
 }
 
 // create planet
-function createPlanet(size) {
-    var geometry = new THREE.SphereGeometry(size, 32, 32);
-    var material = new THREE.MeshPhongMaterial({
-        color: "#3F3D3D",
-        emissive: "#05001B",
-        specular: "#111111",
-        shininess: 10,
-        wireframe: false,
-        fog: false
-    });
-    var planet = new THREE.Mesh(geometry, material);
+function createPlanet (size) {
+  const geometry = new THREE.SphereGeometry(size, 32, 32)
+  const material = new THREE.MeshPhongMaterial({
+    color:     '#3F3D3D',
+    emissive:  '#05001B',
+    specular:  '#111111',
+    shininess: 10,
+    wireframe: false,
+    fog:       false,
+  })
+  const planet = new THREE.Mesh(geometry, material)
 
-    return planet;
+  return planet
 }
 
 // create ellipses
-function createEllipses(amount) {
-    var ellipses = new THREE.Group();
-    for (var i = 0; i < amount; i++) {
-        var curve = new THREE.EllipseCurve(0, 0, 26, 35, 0, 2 * Math.PI, false, 0);
-        var points = curve.getPoints(80);
-        var geometry = new THREE.BufferGeometry().setFromPoints(points);
+function createEllipses (amount) {
+  const ellipses = new THREE.Group()
 
-        var material = new THREE.LineBasicMaterial({ fog: false });
-        var ellipse = new THREE.Line(geometry, material);
+  for (let i = 0; i < amount; i++) {
+    const curve = new THREE.EllipseCurve(0, 0, 26, 35, 0, 2 * Math.PI, false, 0)
+    const points = curve.getPoints(80)
+    const geometry = new THREE.BufferGeometry().setFromPoints(points)
 
-        var color = new THREE.Color().setHSL(21 / 360, 0.17, randBetween(0.1, 0.6));
-        ellipse.material.color = color;
+    const material = new THREE.LineBasicMaterial({ fog: false })
+    const ellipse = new THREE.Line(geometry, material)
 
-        ellipse.scale.x = 1 + i / 100;
-        ellipse.scale.y = 0.9 + i / 30;
-        ellipse.scale.z = 1 + i / 100;
+    const color = new THREE.Color().setHSL(21 / 360, 0.17, randBetween(0.1, 0.6))
+    ellipse.material.color = color
 
-        ellipses.add(ellipse);
-    }
+    ellipse.scale.x = 1 + i / 100
+    ellipse.scale.y = 0.9 + i / 30
+    ellipse.scale.z = 1 + i / 100
 
-    return ellipses;
+    ellipses.add(ellipse)
+  }
+
+  return ellipses
 }
 
 // create stars
-function createStar() {
-    var star = new THREE.Group();
-    var geometry = new THREE.TetrahedronBufferGeometry(1, 0);
-    var material = new THREE.MeshPhongMaterial({ color: "#14ebff", wireframe: false, fog: false, transparent: false });
+function createStar () {
+  const star = new THREE.Group()
+  const geometry = new THREE.TetrahedronBufferGeometry(1, 0)
+  const material = new THREE.MeshPhongMaterial({ color: '#14ebff', wireframe: false, fog: false, transparent: false })
 
-    var starSideOne = new THREE.Mesh(geometry, material);
-    var starSideTwo = new THREE.Mesh(geometry, material);
-    starSideOne.castShadow = true;
-    starSideTwo.castShadow = true;
+  const starSideOne = new THREE.Mesh(geometry, material)
+  const starSideTwo = new THREE.Mesh(geometry, material)
+  starSideOne.castShadow = true
+  starSideTwo.castShadow = true
 
-    starSideOne.receiveShadow = true;
-    starSideTwo.receiveShadow = true;
+  starSideOne.receiveShadow = true
+  starSideTwo.receiveShadow = true
 
-    starSideTwo.rotation.x = Math.PI / 2;
+  starSideTwo.rotation.x = Math.PI / 2
 
-    star.add(starSideOne);
-    star.add(starSideTwo);
+  star.add(starSideOne)
+  star.add(starSideTwo)
 
-    star.rotation.x = 90 * Math.PI / 180;
-    star.rotation.y = randBetween(0, 45) * Math.PI / 180;
+  star.rotation.x = 90 * Math.PI / 180
+  star.rotation.y = randBetween(0, 45) * Math.PI / 180
 
-    star.position.set(randBetween(-4, 4), -0.43, randBetween(-5, -1));
+  star.position.set(randBetween(-4, 4), -0.43, randBetween(-5, -1))
 
-    var color = new THREE.Color().setHSL(21 / 360, 0.17, 1 + Math.sin(new Date().getTime() * 0.0025));
+  const tl = new TimelineMax()
+  tl.fromTo(
+    star.scale,
+    1,
+    { y: 0.01, z: 0.01, x: 0.01 },
+    { y: 0.1, z: 0.1, x: 0.1, ease: Elastic.easeIn.config(1, 0.4) }
+  )
 
-    var tl = new TimelineMax();
-    tl.fromTo(
-        star.scale,
-        1,
-        { y: 0.01, z: 0.01, x: 0.01 },
-        { y: 0.1, z: 0.1, x: 0.1, ease: Elastic.easeIn.config(1, 0.4) }
-    );
+  star.name = 'star'
 
-    star.name = "star";
-    scene.add(star);
-
-    selectableStars.push(star);
+  return star
 }
 
 // create particles
-function createParticles(amount) {
-    for (var i = 0; i < amount; i++) {
-        var geometry = new THREE.SphereBufferGeometry(1, 12, 12);
-        var material = new THREE.MeshPhongMaterial({ color: "hsl(340, 48%, 54%)", wireframe: true });
-        var sphere = new THREE.Mesh(geometry, material);
-        sphere.scale.set(0.1, 0.1, 0.1);
+function createParticles (scene, amount) {
+  const particles = []
 
-        sphere.position.x = randBetween(-6, 6);
-        sphere.position.z = randBetween(-10, -4);
+  for (let i = 0; i < amount; i++) {
+    const geometry = new THREE.SphereBufferGeometry(1, 12, 12)
+    const material = new THREE.MeshPhongMaterial({ color: 'hsl(340, 48%, 54%)', wireframe: true })
+    const sphere = new THREE.Mesh(geometry, material)
+    sphere.scale.set(0.1, 0.1, 0.1)
 
-        sphere.castShadow = true;
-        sphere.receiveShadow = true;
+    sphere.position.x = randBetween(-6, 6)
+    sphere.position.z = randBetween(-10, -4)
 
-        particles.push(sphere);
+    sphere.castShadow = true
+    sphere.receiveShadow = true
 
-        scene.add(sphere);
-    }
+    particles.push(sphere)
+
+    scene.add(sphere)
+  }
+
+  return particles
 }
 
 // HELPER
-function randBetween(min, max) {
-    return Math.random() * (max - min) + min;
+function randBetween (min, max) {
+  return Math.random() * (max - min) + min
 }
 
 // EVENTS
 //  on mouse down
-function onMouseDown(event) {
-    event.preventDefault();
+function onMouseDown (members) {
+  return event=>{
+    event.preventDefault()
 
-    if (intersected) {
-        // remove from array
-        var index = selectableStars.indexOf(intersected);
-        selectableStars.splice(index, 1);
+    if (members.intersected) {
+    // remove from array
+      const index = members.selectableStars.indexOf(members.intersected)
+      members.selectableStars.splice(index, 1)
 
-        // animate stars
-        var tl = new TimelineMax();
-        tl.to(intersected.position, 5, {
-            x: randBetween(-300, 300),
-            y: randBetween(2, 200),
-            z: randBetween(-200, -400),
-            ease: Back.easeOut.config(0.3)
-        });
-        tl.to(intersected.scale, 5, {
-            y: 0.8,
-            z: 0.8,
-            x: 0.8,
-            ease: Elastic.easeIn.config(1, 0.3)
-        });
+      // animate stars
+      const tl = new TimelineMax()
+      tl.to(members.intersected.position, 5, {
+        x:    randBetween(-300, 300),
+        y:    randBetween(2, 200),
+        z:    randBetween(-200, -400),
+        ease: Back.easeOut.config(0.3),
+      })
+      tl.to(members.intersected.scale, 5, {
+        y:    0.8,
+        z:    0.8,
+        x:    0.8,
+        ease: Elastic.easeIn.config(1, 0.3),
+      })
 
-        if (index % 2 === 0) {
-            tl.fromTo(
-                intersected.scale,
-                5,
-                {
-                    y: 0.3,
-                    z: 0.3,
-                    x: 0.3
-                },
-                {
-                    y: 1,
-                    z: 1,
-                    x: 1,
-                    ease: Elastic.easeIn.config(1, 0.3),
-                    repeatDelay: randBetween(3, 6),
-                    repeat: -1,
-                    yoyo: true
-                }
-            );
-        }
+      if (index % 2 === 0) {
+        tl.fromTo(
+          members.intersected.scale,
+          5,
+          {
+            y: 0.3,
+            z: 0.3,
+            x: 0.3,
+          },
+          {
+            y:           1,
+            z:           1,
+            x:           1,
+            ease:        Elastic.easeIn.config(1, 0.3),
+            repeatDelay: randBetween(3, 6),
+            repeat:      -1,
+            yoyo:        true,
+          }
+        )
+      }
     }
+  }
 }
 
 // on key down
-function onKeyDown(event) {
-    console.log(event.which);
-    if (event.keyCode === 67) {
-        // c
-        var max = colors.length;
-        newIndex = currentIndex !== 4 ? currentIndex + 1 : 0;
-        currentIndex = newIndex;
-        var color = colors[newIndex];
+function onKeyDown (renderer, spotLight) {
+  let currentIndex = 0
 
-        renderer.setClearColor(color[1]);
-        spotLight.color.set(color[0]);
+  return event=>{
+    if (event.keyCode === 67) {
+      const newIndex = currentIndex !== 4 ? currentIndex + 1 : 0
+      currentIndex = newIndex
+      const color = COLORS[newIndex]
+
+      renderer.setClearColor(color[1])
+      spotLight.color.set(color[0])
     }
+  }
 }
 
 //  on mouse move
-function onMouseMove(event) {
-    event.preventDefault();
-    mouse.x = event.clientX / window.innerWidth * 2 - 1;
-    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+function onMouseMove (members) {
+  const {camera, raycaster, mouse, selectableStars} = members
+
+  return event=>{
+    event.preventDefault()
+    mouse.x = event.clientX / window.innerWidth * 2 - 1
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1
 
     // update the ray with the camera and mouse position
-    raycaster.setFromCamera(mouse, camera);
+    raycaster.setFromCamera(mouse, camera)
 
     // calculate objects intersecting the ray
-    var intersects = raycaster.intersectObjects(selectableStars, true);
+    const intersects = raycaster.intersectObjects(selectableStars, true)
 
     // change color on hover
     if (intersects.length > 0) {
-        for (var i = 0; i < selectableStars.length; i++) {
-            if (intersects[0].object.parent === selectableStars[i]) {
-                if (intersected) intersected.children.forEach(child => child.material.color.set("#14ebff"));
-                intersected = intersects[0].object.parent;
+      for (let i = 0; i < selectableStars.length; i++) {
+        if (intersects[0].object.parent === selectableStars[i]) {
+          if (members.intersected) members.intersected.children.forEach(child => child.material.color.set('#14ebff'))
+          members.intersected = intersects[0].object.parent
 
-                intersected.children.forEach(child => child.material.color.set("#fff"));
-            }
+          members.intersected.children.forEach(child => child.material.color.set('#fff'))
         }
+      }
     } else {
-        if (intersected) intersected.children.forEach(child => child.material.color.set("#14ebff"));
-        intersected = null;
+      if (members.intersected) members.intersected.children.forEach(child => child.material.color.set('#14ebff'))
+      members.intersected = null
     }
+  }
 }
 
 // on resize
-function onWindowResize() {
-    camera.aspect = window.innerWidth / window.innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
+function onWindowResize (window, camera, renderer) {
+  return ()=>{
+    camera.aspect = window.innerWidth / window.innerHeight
+    camera.updateProjectionMatrix()
+    renderer.setSize(window.innerWidth, window.innerHeight)
+  }
 }
 
 // AUDIO
-function getAudioData(data) {
-    // Split array into 3
-    var frequencyArray = splitFrenquencyArray(data, 3);
+function getAudioData (audio) {
+  // Split array into 3
+  const frequencySets = splitFrenquencyArray(audio.analyser.data, 3)
 
-    // Make average of frenquency array entries
-    for (var i = 0; i < frequencyArray.length; i++) {
-        var average = 0;
+  // Make average of frenquency array entries
+  frequencySets.forEach((frenquencySet,i)=>{
+    const average = frenquencySet.reduce((avg,freq)=>{
+      avg += freq
+      return avg
+    },0)
+    audio.data[i] = average / frenquencySet.length
+  })
 
-        for (var j = 0; j < frequencyArray[i].length; j++) {
-            average += frequencyArray[i][j];
-        }
-        audioData[i] = average / frequencyArray[i].length;
-    }
-    return audioData;
+  return audio.data
 }
 
-function splitFrenquencyArray(arr, n) {
-    var tab = Object.keys(arr).map(function(key) {
-        return arr[key];
-    });
-    var len = tab.length,
-        result = [],
-        i = 0;
+function splitFrenquencyArray (arr, n) {
+  let i = 0
+  const result = []
+  let size
 
-    while (i < len) {
-        var size = Math.ceil((len - i) / n--);
-        result.push(tab.slice(i, i + size));
-        i += size;
-    }
+  while (i < arr.length) {
+    size = Math.ceil((arr.length - i) / n--)
+    result.push(arr.slice(i, i + size))
+    i += size
+  }
 
-    return result;
+  return result
 }
 
 // animate
-function animate() {
-    // get audio data
-    getAudioData(dataArray);
+function animate (members) {
+  const {scene, planets, audio, particles, selectableStars} = members
+  // get audio data
+  getAudioData(audio)
 
-    // animate particles
-    particles.forEach((particle, i) => (particle.position.y = audioData[0] / 200 - 0.48));
+  // animate particles
+  particles.forEach(particle => (particle.position.y = audio.data[0] / 200 - 0.48))
 
-    // animate planets
-    if (audioData[0] >= 1) {
-        planetBig.rotation.z += 0.005;
-        planetSmall.scale.y = planetSmall.scale.x = planetSmall.scale.z = 5 + audioData[0] / 20;
-        planetMedium.scale.y = planetMedium.scale.x = planetMedium.scale.z = 5 + audioData[0] / 20;
-    }
+  // animate planets
+  if (audio.data[0] >= 1) {
+    planets.big.rotation.z += 0.005
+    planets.small.scale.y = planets.small.scale.x = planets.small.scale.z = 5 + audio.data[0] / 20
+    planets.medium.scale.y = planets.medium.scale.x = planets.medium.scale.z = 5 + audio.data[0] / 20
+  }
 
-    // create stars
-    if (audioData[0] >= 100 && selectableStars.length < 100) {
-        createStar();
-    }
+  // create stars
+  if (audio.data[0] >= 100 && selectableStars.length < MAX_SELECTABLE_STARS) {
+    const star = createStar()
+    scene.add(star)
+    selectableStars.push(star)
+  }
 
-    requestAnimationFrame(animate);
-    render();
+  requestAnimationFrame(()=>animate(members))
+  render(members)
 }
 
 // render
-function render() {
-    analyser.getFrequencyData();
-    renderer.render(scene, camera);
+function render (members) {
+  const {scene, camera, audio, renderer} = members
+
+  audio.analyser.getFrequencyData()
+  renderer.render(scene, camera)
 }
 
 document.onreadystatechange = ()=>{
-    if (document.readyState === 'complete') {
-        init();
-        animate();
-    }
+  if (document.readyState === 'complete') {
+    const initData = init(window)
+    animate(initData)
+  }
 }
