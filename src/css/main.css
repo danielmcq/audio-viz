@@ -13,10 +13,20 @@ canvas {
 .keys {
     color: #eee;
     padding: 10px;
+}
+
+.keys.top {
     position: absolute;
-    top: 0px;
-    right: 0px;
+    top: 0;
+}
+
+.keys.bottom {
+    position: absolute;
     bottom: 0;
+}
+
+.keys.left {
+    position: absolute;
     left: 0;
 }
 

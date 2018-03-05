@@ -2,7 +2,10 @@ const MAX_SELECTABLE_STARS = 100
 const ANALYSER_MAX_DECIBELS = -3
 const ANALYSER_MIN_DECIBELS = -100
 
-const AUDIO_STREAM_URI = '/assets/audio/TheWarOnDrugs.m4a'
+// const AUDIO_STREAM_URI = '/assets/audio/TheWarOnDrugs.m4a'
+// const AUDIO_STREAM_URI = '/assets/audio/04Beethoven_PianoSonata14InCSharpMinorOp.27_2_moonlight_-1.AdagioSostenuto.mp3'
+const AUDIO_STREAM_URI = '/assets/audio/Garbage - [2001] Beautiful Garbage - 01. Shut Your Mouth.mp3'
+const AUDIO_FFT_SIZE = 2048
 
 const CAMERA_FOV = 55
 const CAMERA_FRUSTUM_PLANE_NEAR = 0.01
@@ -16,13 +19,24 @@ const PLANET_BIG_POSITION = new THREE.Vector3(-150, 40, -180)
 const PLANET_MEDIUM_POSITION = new THREE.Vector3(40, 30, -100)
 const PLANET_SMALL_POSITION = new THREE.Vector3(20, 70, -160)
 
+const KEY_CODES = {
+  c:     67,
+  space: 32,
+}
+
+// const COLOR_SKY = '#3798D3'
+const COLOR_SKY = '#01131E'
+const COLOR_STAR = '#14EBFF'
+const COLOR_PARTICLE = 'hsl(340, 48%, 54%)'
+
 const COLORS = [
-  ['#e9ff00', '#1a1600'],
-  ['#c32c40', '#16001a'],
-  ['#06FFC4', '#001a19'],
-  ['#F69C3F', '#01131E'],
+  ['#E9FF00', '#1A1600'],
+  ['#C32C40', '#16001A'],
+  ['#06FFC4', '#001A19'],
+  ['#F69C3F', COLOR_SKY],
   ['#FFFFFF', '#080808']
 ]
+
 
 // init
 function init (window) {
@@ -129,7 +143,7 @@ function initRenderer (window) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
   renderer.setSize(window.innerWidth, window.innerHeight)
   renderer.shadowMap.enabled = true
-  renderer.setClearColor('#01131E')
+  renderer.setClearColor(COLOR_SKY)
   window.document.body.appendChild(renderer.domElement)
 
   return renderer
@@ -202,34 +216,49 @@ function initSmallPlanet (scene) {
 }
 
 function initAudio () {
-  const refs = {data: []}
-
-  const fftSize = 2048
-  const audioLoader = new THREE.AudioLoader()
   const listener = new THREE.AudioListener()
   const audio = new THREE.Audio(listener)
-  window.globalAudio = audio
   audio.crossOrigin = 'anonymous'
-  audioLoader.load(AUDIO_STREAM_URI, function(buffer) {
-    audio.setBuffer(buffer)
-    audio.setLoop(true)
-    audio.play()
-  })
+  audio.src = AUDIO_STREAM_URI
+  loadAudioSource(AUDIO_STREAM_URI)
+    .then(buffer=>{
+      audio.setBuffer(buffer)
+      audio.setLoop(true)
+      audio.play()
+    })
 
-  refs.analyser = new THREE.AudioAnalyser(audio, fftSize)
+  const analyser = new THREE.AudioAnalyser(audio, AUDIO_FFT_SIZE)
 
-  refs.analyser.analyser.maxDecibels = ANALYSER_MAX_DECIBELS
-  refs.analyser.analyser.minDecibels = ANALYSER_MIN_DECIBELS
+  analyser.analyser.maxDecibels = ANALYSER_MAX_DECIBELS
+  analyser.analyser.minDecibels = ANALYSER_MIN_DECIBELS
 
-  getAudioData(refs)
+  const refs = {
+    getAnalyser:     ()=>analyser,
+    getCurrentSound: ()=>audio,
+    playPause:       ()=>{
+      if (audio.isPlaying) audio.pause()
+      else audio.play()
+    },
+  }
+  window.player = refs
 
   return refs
 }
 
-function initEventListeners (members) {
-  const {window, camera, renderer, lights} = members
+async function loadAudioSource (source, onProgress) {
+  if (!onProgress) onProgress=()=>{}
 
-  window.addEventListener('keydown', onKeyDown(renderer, lights.spot), false)
+  const audioLoader = new THREE.AudioLoader()
+
+  return new Promise((resolve, reject)=>{
+    audioLoader.load(source, resolve, onProgress, reject)
+  })
+}
+
+function initEventListeners (members) {
+  const {window, camera, renderer} = members
+
+  window.addEventListener('keydown', onKeyDown(members), false)
   window.addEventListener('resize', onWindowResize(window, camera, renderer), false)
   window.addEventListener('mousemove', onMouseMove(members), false)
   window.addEventListener('mousedown', onMouseDown(members), false)
@@ -326,7 +355,7 @@ function createEllipses (amount) {
 function createStar () {
   const star = new THREE.Group()
   const geometry = new THREE.TetrahedronBufferGeometry(1, 0)
-  const material = new THREE.MeshPhongMaterial({ color: '#14ebff', wireframe: false, fog: false, transparent: false })
+  const material = new THREE.MeshPhongMaterial({ color: COLOR_STAR, wireframe: false, fog: false, transparent: false })
 
   const starSideOne = new THREE.Mesh(geometry, material)
   const starSideTwo = new THREE.Mesh(geometry, material)
@@ -365,7 +394,7 @@ function createParticles (scene, amount) {
 
   for (let i = 0; i < amount; i++) {
     const geometry = new THREE.SphereBufferGeometry(1, 12, 12)
-    const material = new THREE.MeshPhongMaterial({ color: 'hsl(340, 48%, 54%)', wireframe: true })
+    const material = new THREE.MeshPhongMaterial({ color: COLOR_PARTICLE, wireframe: true })
     const sphere = new THREE.Mesh(geometry, material)
     sphere.scale.set(0.1, 0.1, 0.1)
 
@@ -439,17 +468,21 @@ function onMouseDown (members) {
 }
 
 // on key down
-function onKeyDown (renderer, spotLight) {
+function onKeyDown (members) {
+  const {renderer, lights, audio} = members
+
   let currentIndex = 0
 
   return event=>{
-    if (event.keyCode === 67) {
+    if (event.keyCode === KEY_CODES.c) {
       const newIndex = currentIndex !== 4 ? currentIndex + 1 : 0
       currentIndex = newIndex
       const color = COLORS[newIndex]
 
       renderer.setClearColor(color[1])
-      spotLight.color.set(color[0])
+      lights.spot.color.set(color[0])
+    } else if (event.keyCode === KEY_CODES.space) {
+      audio.playPause()
     }
   }
 }
@@ -473,14 +506,14 @@ function onMouseMove (members) {
     if (intersects.length > 0) {
       for (let i = 0; i < selectableStars.length; i++) {
         if (intersects[0].object.parent === selectableStars[i]) {
-          if (members.intersected) members.intersected.children.forEach(child => child.material.color.set('#14ebff'))
+          if (members.intersected) members.intersected.children.forEach(child => child.material.color.set(COLOR_STAR))
           members.intersected = intersects[0].object.parent
 
           members.intersected.children.forEach(child => child.material.color.set('#fff'))
         }
       }
     } else {
-      if (members.intersected) members.intersected.children.forEach(child => child.material.color.set('#14ebff'))
+      if (members.intersected) members.intersected.children.forEach(child => child.material.color.set(COLOR_STAR))
       members.intersected = null
     }
   }
@@ -497,19 +530,21 @@ function onWindowResize (window, camera, renderer) {
 
 // AUDIO
 function getAudioData (audio) {
+  const analyser = audio.getAnalyser()
+  const FREQ_SET_LENGTH = 3
   // Split array into 3
-  const frequencySets = splitFrenquencyArray(audio.analyser.data, 3)
+  const frequencySets = splitFrenquencyArray(analyser.data, FREQ_SET_LENGTH)
 
   // Make average of frenquency array entries
-  frequencySets.forEach((frenquencySet,i)=>{
+  const audioData = frequencySets.map(frenquencySet=>{
     const average = frenquencySet.reduce((avg,freq)=>{
       avg += freq
       return avg
     },0)
-    audio.data[i] = average / frenquencySet.length
+    return average / frenquencySet.length
   })
 
-  return audio.data
+  return audioData
 }
 
 function splitFrenquencyArray (arr, n) {
@@ -526,28 +561,62 @@ function splitFrenquencyArray (arr, n) {
   return result
 }
 
+function updateCurrentSongDisplay (members) {
+  const sound = members.audio.getCurrentSound()
+  const filename = sound.src.split('/').pop()
+  const duration = sound.buffer&&sound.buffer.duration||0
+  const currentTime = sound.context&&sound.context.currentTime||0
+  const text = `"${filename}" ${secondsToString(currentTime)} / ${secondsToString(duration)}`
+  setCurrentSongDisplay(text)
+}
+
+function secondsToString (ss) {
+  if (ss) {
+    const minutes = Number.parseInt(ss/60)
+    const seconds = Number.parseInt(ss%60)
+    const secondsArray = seconds.toString().split('')
+    secondsArray.unshift(0)
+    const secondsString = secondsArray.slice(-2).join('')
+
+    return `${minutes}:${secondsString}`
+  }
+  return ''
+}
+
+function setCurrentSongDisplay (text) {
+  const el = window.document.getElementById('currentSong')
+  el.innerText = text
+}
+
 // animate
 function animate (members) {
   const {scene, planets, audio, particles, selectableStars} = members
   // get audio data
-  getAudioData(audio)
+  const audioData = getAudioData(audio).filter(v=>v)
+  const audioDataLength = audioData.length
 
   // animate particles
-  particles.forEach(particle => (particle.position.y = audio.data[0] / 200 - 0.48))
+  particles.forEach((particle,i) => (particle.position.y = audioData[i%audioDataLength] / 100 - 0.48))
 
   // animate planets
-  if (audio.data[0] >= 1) {
+  if (audioData[0] >= 1) {
     planets.big.rotation.z += 0.005
-    planets.small.scale.y = planets.small.scale.x = planets.small.scale.z = 5 + audio.data[0] / 20
-    planets.medium.scale.y = planets.medium.scale.x = planets.medium.scale.z = 5 + audio.data[0] / 20
+  }
+  if (audioData[1%audioDataLength] >= 1) {
+    planets.small.scale.y = planets.small.scale.x = planets.small.scale.z = 5 + audioData[1%audioDataLength] / 20
+  }
+  if (audioData[2%audioDataLength] >= 1) {
+    planets.medium.scale.y = planets.medium.scale.x = planets.medium.scale.z = 5 + audioData[2%audioDataLength] / 20
   }
 
   // create stars
-  if (audio.data[0] >= 100 && selectableStars.length < MAX_SELECTABLE_STARS) {
+  if (audioData[0] >= 100 && selectableStars.length < MAX_SELECTABLE_STARS) {
     const star = createStar()
     scene.add(star)
     selectableStars.push(star)
   }
+
+  updateCurrentSongDisplay(members)
 
   requestAnimationFrame(()=>animate(members))
   render(members)
@@ -557,7 +626,7 @@ function animate (members) {
 function render (members) {
   const {scene, camera, audio, renderer} = members
 
-  audio.analyser.getFrequencyData()
+  audio.getAnalyser().getFrequencyData()
   renderer.render(scene, camera)
 }
 
