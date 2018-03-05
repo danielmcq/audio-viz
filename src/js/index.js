@@ -2,9 +2,8 @@ const MAX_SELECTABLE_STARS = 100
 const ANALYSER_MAX_DECIBELS = -3
 const ANALYSER_MIN_DECIBELS = -100
 
-// const AUDIO_STREAM_URI = '/assets/audio/TheWarOnDrugs.m4a'
-// const AUDIO_STREAM_URI = '/assets/audio/04Beethoven_PianoSonata14InCSharpMinorOp.27_2_moonlight_-1.AdagioSostenuto.mp3'
-const AUDIO_STREAM_URI = '/assets/audio/Garbage - [2001] Beautiful Garbage - 01. Shut Your Mouth.mp3'
+// const AUDIO_STREAM_URI = 'https://cdn.rawgit.com/ellenprobst/web-audio-api-with-Threejs/57582104/lib/TheWarOnDrugs.m4a'
+const AUDIO_STREAM_URI = 'https://archive.org/download/BeethovenPianoSonataNo.14moonlightrubinstein/04Beethoven_PianoSonata14InCSharpMinorOp.27_2_moonlight_-1.AdagioSostenuto.mp3'
 const AUDIO_FFT_SIZE = 2048
 
 const CAMERA_FOV = 55
