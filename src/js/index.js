@@ -566,7 +566,7 @@ function updateCurrentSongDisplay (members) {
   const duration = sound.buffer&&sound.buffer.duration||0
   const currentTime = sound.context&&sound.context.currentTime||0
   const text = `"${filename}" ${secondsToString(currentTime)} / ${secondsToString(duration)}`
-  setCurrentSongDisplay(text)
+  setCurrentSongDisplay(`${text} space ${members.other||''}`)
 }
 
 function secondsToString (ss) {
@@ -589,7 +589,7 @@ function setCurrentSongDisplay (text) {
 
 // animate
 function animate (members) {
-  const {scene, planets, audio, particles, selectableStars} = members
+  const {scene, audio, particles, selectableStars, lights} = members
   // get audio data
   const audioData = getAudioData(audio).filter(v=>v)
   const audioDataLength = audioData.length
@@ -598,6 +598,27 @@ function animate (members) {
   particles.forEach((particle,i) => (particle.position.y = audioData[i%audioDataLength] / 100 - 0.48))
 
   // animate planets
+  animatePlanets(members, audioData)
+
+  // create stars
+  if (audioData[0] >= 100 && selectableStars.length < MAX_SELECTABLE_STARS) {
+    const star = createStar()
+    scene.add(star)
+    selectableStars.push(star)
+  }
+
+  animateLights(members)
+
+  updateCurrentSongDisplay(members)
+
+  requestAnimationFrame(()=>animate(members))
+  render(members)
+}
+
+function animatePlanets (members, audioData) {
+  const {planets} = members
+  const audioDataLength = audioData.length
+
   if (audioData[0] >= 1) {
     planets.big.rotation.z += 0.005
   }
@@ -607,19 +628,28 @@ function animate (members) {
   if (audioData[2%audioDataLength] >= 1) {
     planets.medium.scale.y = planets.medium.scale.x = planets.medium.scale.z = 5 + audioData[2%audioDataLength] / 20
   }
-
-  // create stars
-  if (audioData[0] >= 100 && selectableStars.length < MAX_SELECTABLE_STARS) {
-    const star = createStar()
-    scene.add(star)
-    selectableStars.push(star)
-  }
-
-  updateCurrentSongDisplay(members)
-
-  requestAnimationFrame(()=>animate(members))
-  render(members)
 }
+
+function animateLights (members) {
+  const {lights} = members
+
+  const {x,y,z} = lights.dir.position
+
+  const r = Math.hypot(x, z)*Math.sign(x)*Math.sign(z)
+
+  const theTime = (new Date).valueOf()
+
+  const x1 = x + r * Math.cos(Math.PI/(theTime%3600))
+  const z1 = z + r * Math.sin(Math.PI/(theTime%3600))
+  members.other = `animateLights: x: ${precisionRound(x,2)}, y: ${precisionRound(y,2)}, z: ${precisionRound(z,2)}, hypot: ${precisionRound(r,2)}, x1: ${precisionRound(x1,2)}, z1: ${precisionRound(z1,2)}, r: ${precisionRound(r,2)}`
+  lights.dir.position.set(x1, y, z1)
+}
+
+function precisionRound(number, precision) {
+  const factor = Math.pow(10, precision)
+  return Math.round(number * factor) / factor
+}
+
 
 // render
 function render (members) {
